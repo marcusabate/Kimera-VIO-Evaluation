@@ -6,11 +6,11 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.8.1
+#       jupytext_version: 1.13.8
 #   kernelspec:
-#     display_name: Python 2
+#     display_name: Python 3 (ipykernel)
 #     language: python
-#     name: python2
+#     name: python3
 # ---
 
 # %% [markdown]
@@ -58,9 +58,9 @@ from evaluation.evaluation_lib import (
     convert_rel_traj_to_abs_traj,
 )
 
-# #%matplotlib inline
-# #%matplotlib widget
-# %matplotlib notebook
+# %matplotlib inline
+# # %matplotlib widget
+# # %matplotlib notebook
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 import mpl_toolkits.mplot3d.art3d as art3d
@@ -198,12 +198,16 @@ gt_df = gt_df[~gt_df.index.duplicated()]
 
 # %%
 # Convert the gt relative-pose DataFrame to a trajectory object.
-traj_ref_complete = pandas_bridge.df_to_trajectory(gt_df)
+if not use_external_odom_as_gt:
+    traj_ref_complete = pandas_bridge.df_to_trajectory(gt_df)
+else:
+    traj_ref_unaligned_rel = pandas_bridge.df_to_trajectory(gt_df)
+    traj_ref_complete = convert_rel_traj_to_abs_traj(traj_ref_unaligned_rel)
 
 # Use the backend poses as trajectory.
 traj_est_unaligned = pandas_bridge.df_to_trajectory(output_poses_df)
-discard_n_start_poses = 0
-discard_n_end_poses = 0
+discard_n_start_poses = 10
+discard_n_end_poses = 10
 
 # Associate the data.
 traj_est = copy.deepcopy(traj_est_unaligned)
@@ -216,8 +220,8 @@ traj_est = trajectory.align_trajectory(
     discard_n_end_poses=int(discard_n_end_poses),
 )
 
-print("traj_ref: ", traj_ref)
-print("traj_est: ", traj_est)
+print("traj_ref: ", str(traj_ref))
+print("traj_est: ", str(traj_est))
 
 # %%
 # plot ground truth trajectory with pose
@@ -322,6 +326,25 @@ fig2 = plot_traj_colormap_ape(
 plt.show()
 
 # %% [markdown]
+# ## Velocity Estimate vs GT Plotting
+#
+# The two lines for each axis should match fairly well.
+
+# %%
+if not use_external_odom_as_gt:
+    gt_vel = np.linalg.norm(np.column_stack((gt_df.vx, gt_df.vy, gt_df.vz)), axis=1)
+else:
+    gt_vel = np.linalg.norm(np.column_stack((gt_df['vx (kf)'], gt_df['vy (kf)'], gt_df['vz (kf)'])), axis=1)
+est_vel = np.linalg.norm(np.column_stack((output_poses_df.vx, output_poses_df.vy, output_poses_df.vz)), axis=1)
+
+fig = plt.figure()
+plt.plot(gt_df.index, gt_vel, label="Ground Truth")
+plt.plot(output_poses_df.index, est_vel, label="VIO Estimate")
+plt.title("Velocity Norm")
+plt.legend()
+plt.show()
+
+# %% [markdown]
 # ## Relative-Pose-Error Plotting
 #
 # Plot relative-pose-error along the entire trajectory. RPE gives a good sense of overall VIO performance from one frame to the next.
@@ -400,6 +423,7 @@ pim_filename = os.path.join(
     os.path.expandvars(vio_output_dir), "output_pim_navstates.csv"
 )
 pim_df = pd.read_csv(pim_filename, sep=",", index_col=0)
+pim_df = pim_df.iloc[1:]  # first row is logged as zero, remove
 rename_pim_df(pim_df)
 
 gt_df = pd.read_csv(gt_data_file, sep=",", index_col=0)
@@ -408,7 +432,11 @@ gt_df = gt_df[~gt_df.index.duplicated()]
 
 # %%
 # Convert the gt relative-pose DataFrame to a trajectory object.
-traj_ref = pandas_bridge.df_to_trajectory(gt_df)
+if not use_external_odom_as_gt:
+    traj_ref = pandas_bridge.df_to_trajectory(gt_df)
+else:
+    traj_ref_unaligned_rel = pandas_bridge.df_to_trajectory(output_external_odom_df)
+    traj_ref = convert_rel_traj_to_abs_traj(traj_ref_unaligned_rel)
 
 # Use the mono ransac file as estimated trajectory.
 # traj_est_unassociated = file_interface.read_swe_csv_trajectory(ransac_mono_filename)
@@ -419,8 +447,22 @@ traj_est = copy.deepcopy(traj_est_unaligned)
 traj_ref, traj_est = sync.associate_trajectories(traj_ref, traj_est)
 traj_est = trajectory.align_trajectory(traj_est, traj_ref, correct_scale=False)
 
-print("traj_ref: ", traj_ref)
-print("traj_est: ", traj_est)
+print("traj_ref: ", str(traj_ref))
+print("traj_est: ", str(traj_est))
+
+# %%
+if not use_external_odom_as_gt:
+    gt_vel = np.linalg.norm(np.column_stack((gt_df.vx, gt_df.vy, gt_df.vz)), axis=1)
+else:
+    gt_vel = np.linalg.norm(np.column_stack((gt_df['vx (kf)'], gt_df['vy (kf)'], gt_df['vz (kf)'])), axis=1)
+est_vel = np.linalg.norm(np.column_stack((pim_df.vx, pim_df.vy, pim_df.vz)), axis=1)
+
+fig = plt.figure()
+plt.plot(gt_df.index, gt_vel, label="Ground Truth")
+plt.plot(pim_df.index, est_vel, label="PIM Estimate")
+plt.title("Velocity Norm")
+plt.legend()
+plt.show()
 
 # %% [markdown]
 # ### Relative Angles
@@ -438,7 +480,7 @@ for i in range(len(traj_est_rel._poses_se3)):
     PIM_angles_timestamps.append(traj_est_rel.timestamps[i])
     # quaternion to axisangle
     rotm = traj_est_rel._poses_se3[i][0:3, 0:3]
-    r = R.from_dcm(rotm)
+    r = R.from_matrix(rotm)
 
     rot_vec = r.as_rotvec()
     PIM_angles.append(np.linalg.norm(rot_vec))
@@ -451,7 +493,7 @@ for i in range(len(traj_ref_rel._poses_se3)):
     gt_angles_timestamps.append(traj_ref_rel.timestamps[i])
     # rotation matrix to axisangle
     rotm = traj_ref_rel._poses_se3[i][0:3, 0:3]
-    r = R.from_dcm(rotm)
+    r = R.from_matrix(rotm)
 
     rot_vec = r.as_rotvec()
     gt_angles.append(np.linalg.norm(rot_vec))
@@ -499,9 +541,24 @@ output_sf_filename = os.path.join(
 )
 output_sf_df = pd.read_csv(output_sf_filename, sep=",", index_col=0)
 fig = plt.figure()
-plt.plot(output_sf_df.timestamp_kf / 1e9, output_sf_df.numValid)
-plt.ylabel("Valid Smart Factors")
+
+# plt.plot(output_sf_df.timestamp_kf / 1e9, output_sf_df.numSF, label='numSF')
+plt.plot(output_sf_df.timestamp_kf / 1e9, output_sf_df.numValid, label='numValid')
+
+if np.any(output_sf_df.numDegenerate > 0):
+    plt.plot(output_sf_df.timestamp_kf / 1e9, output_sf_df.numDegenerate, label='numDegenerate')
+if np.any(output_sf_df.numFarPoints > 0):
+    plt.plot(output_sf_df.timestamp_kf / 1e9, output_sf_df.numFarPoints, label='numFarPoints')
+# if np.any(output_sf_df.numNonInitialized > 0):
+#     plt.plot(output_sf_df.timestamp_kf / 1e9, output_sf_df.numNonInitialized, label='numNonInitialized')
+if np.any(output_sf_df.numCheirality > 0):
+    plt.plot(output_sf_df.timestamp_kf / 1e9, output_sf_df.numCheirality, label='numCheirality')
+if np.any(output_sf_df.numOutliers > 0):
+    plt.plot(output_sf_df.timestamp_kf / 1e9, output_sf_df.numOutliers, label='numOutliers')
+
+plt.ylabel("Number of Smart Factors")
 plt.xlabel("Timestamps")
+plt.legend()
 plt.show()
 
 # %% [markdown]
@@ -509,19 +566,18 @@ plt.show()
 # Plot biases of gyro and accelerometer
 
 # %%
-fig = plt.figure()
-plt.plot(output_poses_df.index, output_poses_df.bgx)
-plt.plot(output_poses_df.index, output_poses_df.bgy)
-plt.plot(output_poses_df.index, output_poses_df.bgz)
+fig1 = plt.figure()
+plt.plot(output_poses_df.index, output_poses_df.bgx, label='bgx')
+plt.plot(output_poses_df.index, output_poses_df.bgy, label='bgy')
+plt.plot(output_poses_df.index, output_poses_df.bgz, label='bgz')
 plt.ylabel("Gyro Biases")
 plt.xlabel("Timestamps")
 plt.legend()
-plt.show()
 
-fig = plt.figure()
-plt.plot(output_poses_df.index, output_poses_df.bax)
-plt.plot(output_poses_df.index, output_poses_df.bay)
-plt.plot(output_poses_df.index, output_poses_df.baz)
+fig2 = plt.figure()
+plt.plot(output_poses_df.index, output_poses_df.bax, label='bax')
+plt.plot(output_poses_df.index, output_poses_df.bay, label='bay')
+plt.plot(output_poses_df.index, output_poses_df.baz, label='baz')
 plt.ylabel("Acceleration Biases")
 plt.xlabel("Timestamps")
 plt.legend()
@@ -530,6 +586,8 @@ plt.show()
 # %% [markdown]
 # # External Odometry
 # Plot external odometry trajectory against ground truth.
+#
+# NOTE: Will give terrible results if you have set `use_external_odometry_as_gt` to `True` at the top.
 
 # %%
 gt_df = pd.read_csv(gt_data_file, sep=',', index_col=0)
@@ -557,8 +615,8 @@ traj_est = trajectory.align_trajectory(traj_est, traj_ref, correct_scale=False,
                                        discard_n_start_poses = int(discard_n_start_poses),
                                        discard_n_end_poses = int(discard_n_end_poses))
 
-print("traj_ref: ", traj_ref)
-print("traj_est: ", traj_est)
+print("traj_ref: ", str(traj_ref))
+print("traj_est: ", str(traj_est))
 
 # %%
 # plot ground truth trajectory with pose
@@ -643,4 +701,4 @@ raw_output_web = web.RawOutputWebsiteBuilder(jinja_env, ".", "traj_vio.csv")
 raw_output_web.add_dataset_to_website("RealSense", vio_output_dir)
 
 # %%
-raw_output_web.write_datasets_website()
+# raw_output_web.write_datasets_website()
