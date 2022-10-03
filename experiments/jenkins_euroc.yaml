@@ -22,6 +22,14 @@ datasets_to_run:
    discard_n_end_poses: 10
    initial_frame: 50
    final_frame: 10000
+- name: V1_03_difficult
+   use_lcd: true
+   segments: [5]
+   pipelines: ['Euroc']
+   discard_n_start_poses: 10
+   discard_n_end_poses: 10
+   initial_frame: 10
+   final_frame: 10000
  - name: V2_01_easy
    use_lcd: true
    segments: [5]
@@ -54,6 +62,14 @@ datasets_to_run:
    discard_n_end_poses: 10
    initial_frame: 100
    final_frame: 3500
+- name: MH_02_easy
+   use_lcd: true
+   segments: [5]
+   pipelines: ['Euroc']
+   discard_n_start_poses: 10
+   discard_n_end_poses: 10
+   initial_frame: 10
+   final_frame: 10000
  - name: MH_03_medium
    use_lcd: true
    segments: [5]
@@ -77,12 +93,4 @@ datasets_to_run:
    discard_n_start_poses: 35
    discard_n_end_poses: 0
    initial_frame: 200
-   final_frame: 10000
- - name: V1_03_difficult
-   use_lcd: true
-   segments: [5]
-   pipelines: ['Euroc']
-   discard_n_start_poses: 10
-   discard_n_end_poses: 10
-   initial_frame: 10
    final_frame: 10000
