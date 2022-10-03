@@ -22,7 +22,7 @@ datasets_to_run:
    discard_n_end_poses: 10
    initial_frame: 50
    final_frame: 10000
-- name: V1_03_difficult
+ - name: V1_03_difficult
    use_lcd: true
    segments: [5]
    pipelines: ['Euroc']
