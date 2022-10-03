@@ -62,7 +62,7 @@ datasets_to_run:
    discard_n_end_poses: 10
    initial_frame: 100
    final_frame: 3500
-- name: MH_02_easy
+ - name: MH_02_easy
    use_lcd: true
    segments: [5]
    pipelines: ['Euroc']
